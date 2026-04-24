@@ -257,11 +257,15 @@ pause
 goto MENU
 
 :STATUS_RAPIDO
-call :ADB shell dpm list-owners 2>nul | findstr /i "tabletmanager" >nul
+call :ADB shell dpm list-owners > "%TEMP%\gestor_status_owners.txt" 2>&1
+findstr /i "com.escola.tabletmanager tabletmanager" "%TEMP%\gestor_status_owners.txt" >nul
 if %errorlevel%==0 (
     echo [OK] Gestor Escolar configurado como Device Owner
 ) else (
     echo [X] Device Owner NAO configurado
+    echo.
+    echo Saida do Android para list-owners:
+    type "%TEMP%\gestor_status_owners.txt"
 )
 echo.
 echo Pacote instalado:
