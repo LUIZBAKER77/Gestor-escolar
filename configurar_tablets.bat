@@ -31,9 +31,10 @@ echo  [3] Verificar status do tablet
 echo  [4] Ver usuarios/perfis do tablet
 echo  [5] Validar bloqueio e logs
 echo  [6] FAIL-SAFE / Restaurar componentes
-echo  [7] Sair
+echo  [7] Limpar contas invisíveis (resolve erro "accounts on device")
+echo  [8] Sair
 echo.
-set /p OPCAO="Digite a opcao (1-7): "
+set /p OPCAO="Digite a opcao (1-8): "
 
 if "%OPCAO%"=="1" goto UM
 if "%OPCAO%"=="2" goto VARIOS
@@ -41,7 +42,8 @@ if "%OPCAO%"=="3" goto STATUS
 if "%OPCAO%"=="4" goto USUARIOS
 if "%OPCAO%"=="5" goto VALIDAR
 if "%OPCAO%"=="6" goto FAILSAFE
-if "%OPCAO%"=="7" goto FIM
+if "%OPCAO%"=="7" goto LIMPAR_CONTAS
+if "%OPCAO%"=="8" goto FIM
 goto MENU
 
 :UM
@@ -109,7 +111,6 @@ goto MENU
 
 :EXECUTAR
 echo.
-echo Verificando comunicacao com o tablet...
 call :ADB get-state >nul 2>&1
 if %errorlevel% neq 0 (
     echo ERRO: Tablet nao detectado. Verifique o cabo USB.
@@ -117,22 +118,16 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo Comunicacao OK.
 call :INSTALAR_APK
 if errorlevel 1 exit /b 1
 
 echo.
-echo Concedendo permissao WRITE_SECURE_SETTINGS...
-call :ADB shell pm grant com.escola.tabletmanager android.permission.WRITE_SECURE_SETTINGS 2>nul
 echo Configurando Device Owner...
 call :ADB shell dpm set-device-owner %ADMIN_COMPONENT% > "%TEMP%\gestor_owner_result.txt" 2>&1
-set "DPM_RESULT=%errorlevel%"
-call :ADB shell dpm list-owners > "%TEMP%\gestor_owner_owners.txt" 2>&1
-findstr /i "com.escola.tabletmanager" "%TEMP%\gestor_owner_owners.txt" >nul
+findstr /i "success" "%TEMP%\gestor_owner_result.txt" >nul
 if %errorlevel%==0 (
     echo.
     echo SUCESSO! Device Owner aplicado.
-    type "%TEMP%\gestor_owner_result.txt"
     call :STATUS_RAPIDO
     echo.
     echo Proximo passo no tablet:
@@ -145,68 +140,140 @@ if %errorlevel%==0 (
     exit /b 0
 )
 
-if "%DPM_RESULT%"=="0" (
-    findstr /i "success device owner active admin" "%TEMP%\gestor_owner_result.txt" >nul
-    if %errorlevel%==0 (
-        echo.
-        echo SUCESSO! Device Owner aplicado.
-        type "%TEMP%\gestor_owner_result.txt"
-        call :STATUS_RAPIDO
-        echo.
-        echo Proximo passo no tablet:
-        echo  1. Abra o Gestor Escolar
-        echo  2. Crie a senha admin
-        echo  3. Escolha os apps permitidos
-        echo  4. Ative o Modo Aluno
-        echo.
-        pause
-        exit /b 0
-    )
-)
-
 echo.
 echo Falhou. Verificando motivo...
 echo.
 type "%TEMP%\gestor_owner_result.txt"
 echo.
-echo Codigo retornado pelo dpm: %DPM_RESULT%
+
 findstr /i "already several users" "%TEMP%\gestor_owner_result.txt" >nul
 if %errorlevel%==0 (
-    echo.
-    echo O Android recusou porque ha mais de um usuario/perfil no tablet.
-    echo Isso precisa ser resolvido antes do Device Owner.
-    echo.
-    echo Execute a opcao 4 deste script para listar os usuarios.
-    echo Em Samsung, verifique especialmente:
-    echo   - Convidado
-    echo   - Outro usuario
-    echo   - Perfil de trabalho
-    echo   - Pasta Segura
-    echo   - Modo manutencao
+    echo [PROBLEMA] Ha mais de um usuario/perfil no tablet.
+    echo Use a opcao 4 para listar e a opcao 7 para tentar limpar.
     echo.
 )
+
 findstr /i "some accounts on the device" "%TEMP%\gestor_owner_result.txt" >nul
 if %errorlevel%==0 (
+    echo [PROBLEMA DETECTADO] Ha contas cadastradas no tablet ^(podem ser invisíveis^).
     echo.
-    echo O Android recusou porque ainda ha contas cadastradas no tablet.
-    echo Remova contas Google, Samsung, Microsoft, perfil de trabalho ou Pasta Segura.
+    echo Isso e muito comum no Samsung Tab A8 e outros modelos Samsung.
+    echo O sistema Samsung cria contas automaticamente mesmo sem voce fazer login.
+    echo.
+    echo SOLUCAO RAPIDA: Use a opcao 7 do menu para limpar contas invisiveis via ADB.
+    echo.
+    echo Se preferir fazer manualmente no tablet:
+    echo   Configuracoes ^> Contas e backup ^> Gerenciar contas ^> Remova tudo
+    echo   Configuracoes ^> Biometria e seguranca ^> Pasta Segura ^> desative
+    echo   Configuracoes ^> Usuarios ^> remova Convidado se existir
     echo.
 )
-echo.
-echo Se o erro mencionar "account" ou "Google":
-echo   Configuracoes ^> Contas e backup ^> Contas ^> Remova a conta Google
-echo.
-echo Se o erro mencionar "already set":
-echo   Ja existe Device Owner. Use a opcao 5 para remover e tente novamente.
-echo.
-echo Se o erro mencionar "not installed":
-echo   Coloque o APK nesta pasta ou instale o app no tablet antes de rodar.
-echo.
-echo Se o erro mencionar senha, PIN ou lock screen:
-echo   Remova qualquer bloqueio de tela do tablet antes da configuracao inicial.
-echo.
+
+findstr /i "already set" "%TEMP%\gestor_owner_result.txt" >nul
+if %errorlevel%==0 (
+    echo [PROBLEMA] Ja existe um Device Owner configurado.
+    echo Use a opcao 6 ^> A para remover e tente novamente.
+    echo.
+)
+
+findstr /i "not installed" "%TEMP%\gestor_owner_result.txt" >nul
+if %errorlevel%==0 (
+    echo [PROBLEMA] App nao instalado. Coloque o APK na pasta e tente novamente.
+    echo.
+)
+
 pause
 exit /b 1
+
+:LIMPAR_CONTAS
+cls
+echo ==========================================
+echo   LIMPAR CONTAS INVISIVEIS
+echo   ^(resolve "accounts on device"^)
+echo ==========================================
+echo.
+call :ADB get-state >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Nenhum tablet detectado. Conecte o tablet e tente novamente.
+    pause
+    goto MENU
+)
+
+echo Limpando dados do Samsung Account ^(conta invisivel mais comum^)...
+call :ADB shell pm clear com.osp.app.signin >nul 2>&1
+call :ADB shell pm clear com.samsung.android.mobileservice >nul 2>&1
+echo OK
+
+echo Limpando cache do Google Account...
+call :ADB shell pm clear com.google.android.gsf >nul 2>&1
+call :ADB shell pm clear com.google.android.gms >nul 2>&1
+echo OK
+
+echo Removendo Pasta Segura se existir...
+call :ADB shell pm disable-user --user 0 com.samsung.knox.securefolder >nul 2>&1
+echo OK
+
+echo Aguardando sistema processar...
+timeout /t 4 /nobreak >nul
+
+echo.
+echo Testando Device Owner agora...
+call :ADB shell dpm set-device-owner %ADMIN_COMPONENT% > "%TEMP%\gestor_test.txt" 2>&1
+findstr /i "success" "%TEMP%\gestor_test.txt" >nul
+if %errorlevel%==0 (
+    echo.
+    echo ================================================
+    echo  SUCESSO! Device Owner configurado apos limpeza!
+    echo ================================================
+    call :STATUS_RAPIDO
+    pause
+    goto MENU
+)
+
+echo.
+type "%TEMP%\gestor_test.txt"
+echo.
+echo Limpeza automatica nao foi suficiente.
+echo Siga as instrucoes manuais abaixo.
+echo.
+goto LIMPAR_MANUAL
+
+:LIMPAR_MANUAL
+echo ==========================================
+echo   INSTRUCOES MANUAIS PARA SAMSUNG TAB A8
+echo ==========================================
+echo.
+echo Faca EXATAMENTE nesta ordem no tablet:
+echo.
+echo PASSO 1 - Remover contas visiveis:
+echo   Configuracoes ^> Contas e backup ^> Gerenciar contas
+echo   Remova TODAS as contas ^(Google, Samsung, Microsoft, etc^)
+echo.
+echo PASSO 2 - Desativar Pasta Segura ^(se existir^):
+echo   Configuracoes ^> Biometria e seguranca ^> Pasta Segura
+echo   Desativar e escolher "Excluir"
+echo.
+echo PASSO 3 - Remover Convidado ^(se existir^):
+echo   Configuracoes ^> Gerenciamento geral ^> Usuarios
+echo   Remova o usuario Convidado
+echo.
+echo PASSO 4 - Limpar conta Samsung Account do sistema:
+echo   Configuracoes ^> Aplicativos ^> ver todos ^> Samsung Account
+echo   Toque em "Armazenamento" ^> "Limpar dados"
+echo   ATENCAO: isso desvincula a conta Samsung, nao apaga o Google
+echo.
+echo PASSO 5 - Reiniciar o tablet completamente
+echo   Aguarde o tablet iniciar totalmente antes de continuar
+echo.
+echo PASSO 6 - Volte aqui e use a opcao 1 para configurar
+echo.
+echo ALTERNATIVA: Se ainda nao funcionar, faca reset de fabrica
+echo   Configuracoes ^> Gerenciamento geral ^> Redefinir ^> Redefinir dados de fabrica
+echo   Depois refaca o setup sem entrar com nenhuma conta Google/Samsung
+echo   Conecte o USB logo apos o setup inicial e rode a opcao 1
+echo.
+pause
+goto MENU
 
 :STATUS
 cls
@@ -257,15 +324,11 @@ pause
 goto MENU
 
 :STATUS_RAPIDO
-call :ADB shell dpm list-owners > "%TEMP%\gestor_status_owners.txt" 2>&1
-findstr /i "com.escola.tabletmanager tabletmanager" "%TEMP%\gestor_status_owners.txt" >nul
+call :ADB shell dpm list-owners 2>nul | findstr /i "tabletmanager" >nul
 if %errorlevel%==0 (
     echo [OK] Gestor Escolar configurado como Device Owner
 ) else (
     echo [X] Device Owner NAO configurado
-    echo.
-    echo Saida do Android para list-owners:
-    type "%TEMP%\gestor_status_owners.txt"
 )
 echo.
 echo Pacote instalado:
@@ -295,6 +358,9 @@ call :ADB shell dpm list-owners
 echo.
 echo Restricoes relacionadas a credenciais:
 call :ADB shell dumpsys device_policy | findstr /i "no_config_credentials password keyguard"
+echo.
+echo Accessibility habilitada:
+call :ADB shell settings get secure enabled_accessibility_services
 echo.
 echo Tarefas/componentes de senha possivelmente desativados:
 call :ADB shell pm list packages -d | findstr /i "settings"
@@ -350,18 +416,13 @@ if not defined APK_PATH exit /b 0
 
 echo.
 echo Instalando/atualizando APK...
-echo Arquivo: %APK_PATH%
-echo Aguarde... se aparecer aviso no tablet, confirme.
-call :ADB install -r "%APK_PATH%" > "%TEMP%\gestor_install_result.txt" 2>&1
+call :ADB install -r "%APK_PATH%" >nul
 if %errorlevel% neq 0 (
     echo Falha ao instalar o APK.
-    echo.
-    type "%TEMP%\gestor_install_result.txt"
     echo Verifique se o arquivo nao esta corrompido.
     pause
     exit /b 1
 )
-type "%TEMP%\gestor_install_result.txt"
 echo APK instalado com sucesso.
 exit /b 0
 
